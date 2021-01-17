@@ -4,12 +4,12 @@ from __future__ import print_function
 import tensorflow as tf
 import numpy as np
 from tensorflow import keras
-from tensorflow.keras import regularizers, activations
+from tensorflow.keras import regularizers, activations, initializers
 from tensorflow.keras import backend as K
 
 class RNNCell(keras.layers.Layer):
     def __init__(self, units, mask_matrix, dt = 0.1, tau = 10, noise_var = 0.1, dale_ratio= None,
-                 activation = 'relu', W_in_reg = False, W_r_reg = False, **kwargs):
+                 activation = 'relu', **kwargs):
         self.dt = dt
         self.tau = tau
         self.state_size = units  #number of RNN cells
@@ -24,30 +24,18 @@ class RNNCell(keras.layers.Layer):
             self.D = K.variable(dale_matrix)
 
         self.mask = K.variable(mask_matrix)
-
         self.activation = activations.get(activation)
-        self.W_in_reg = W_in_reg
-        self.W_r_reg = W_r_reg
+        self.input_init = initializers.RandomUniform(minval=0., maxval=0.01, seed=1234)
+        self.rec_init = initializers.RandomUniform(minval=0., maxval=0.05, seed=1234)
 
         super(RNNCell, self).__init__(**kwargs)
 
     def build(self, input_shape):
-        if self.W_in_reg:
-            self.W_in = self.add_weight(shape=(input_shape[-1], self.state_size),
-                                    initializer='glorot_normal', regularizer=regularizers.l1(1e-8),
-                                    name='input_weights')
-        else:
-            self.W_in = self.add_weight(shape=(input_shape[-1], self.state_size),
-                                        initializer='glorot_normal',
+        self.W_in = self.add_weight(shape=(input_shape[-1], self.state_size),
+                                        initializer=self.input_init,
                                         name='input_weights')
-
-        if self.W_r_reg:
-            self.W_r = self.add_weight(shape=(self.state_size, self.state_size),
-                                   initializer='glorot_normal', regularizer=regularizers.l2(1e-5),
-                                   name='recurrent_weights')
-        else:
-            self.W_r = self.add_weight(shape=(self.state_size, self.state_size),
-                                       initializer='glorot_normal',
+        self.W_r = self.add_weight(shape=(self.state_size, self.state_size),
+                                       initializer=self.rec_init,
                                        name='recurrent_weights')
 
         self.built = True
@@ -56,7 +44,7 @@ class RNNCell(keras.layers.Layer):
         prev_output = states[0]
         if self.dale_ratio:
             h_in = K.dot(inputs, K.abs(self.W_in))
-            h_rec = K.dot(self.activation(prev_output), self.mask*K.abs(self.W_r)*self.D)
+            h_rec = K.dot(self.activation(prev_output), self.mask*K.dot(K.abs(self.W_r),self.D))
         else:
             h_in = K.dot(inputs, self.W_in)
             h_rec = tf.matmul(self.activation(prev_output), self.mask*self.W_r)
